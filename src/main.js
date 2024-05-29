@@ -5,22 +5,26 @@ import iziToast from 'izitoast';
 // Додатковий імпорт стилів
 import 'izitoast/dist/css/iziToast.min.css';
 
-//Щголошуємо refs, та отримуємо доступ до елементів
+//Оголошуємо refs, та отримуємо доступ до елементів
 const refs = {
   searchform: document.querySelector('.search-form'),
   galleryConteiner: document.querySelector('.gallery'),
   loader: document.querySelector('.loader'),
+  loadMoreBtn: document.querySelector('.load-more'),
 };
 
+//Створюємо змінну для відображення загальної кількості завантажених фотографій, для початку присвоюємо їй значення 0
+let totalHits = 0;
 //Створюємо новий екземпляр класу
 const pixabayApi = new PixabayApi();
 
-//Встановлюємо прослуховувач події на форму
+//Встановлюємо прослуховувач події на форму та кнопку
 refs.searchform.addEventListener('submit', onSearch);
+refs.loadMoreBtn.addEventListener('click', onLoadMore);
 
-//Функція виконує пошук зображень на основі введеного запиту
+//Створюємо функцію яка виконує пошук зображень на основі введеного запиту
 function onSearch(event) {
-  event.preventDefault(); // щоб не відбувалось перезавантаження сторінка після відправлення фформи
+  event.preventDefault(); // щоб не відбувалось перезавантаження сторінка після відправлення форми
 
   //Отримання та обробка запиту і очищення його від пробілів
   const query = event.currentTarget.elements.query.value.trim();
@@ -28,45 +32,85 @@ function onSearch(event) {
     return showToast('red', 'Please, fill the main field', 'topRight'); //Якщо запит порожній зявляється повідомлення про необхідність заповнити поле, і функція завершується.
   }
 
-  //Функція для підготовки виконання пошуку
+  //Викликаємо функцію для показу індикатора завантаження
   showLoader();
   refs.galleryConteiner.innerHTML = ''; //Очищується контейнер галереї
   pixabayApi.query = query; // задається новий пошуковий запит
+  pixabayApi.resetPage(); //викликаємо метод класу до скидає сторінку до 1
 
-  //Викликається метод fetchPhoto для отримання фотографій з Pixabay API
-  pixabayApi
-    .fetchPhoto()
-    .then(data => {
-      //Перевіряємо кількість отриманих результатів
-      if (data.hits.length === 0) {
-        //Якщо результатів немає, зявляється повідомлення про відсутність збігів
-        showToast(
-          'red',
-          'Sorry, there are no images matching your search query. Please try again!',
-          'topRight'
-        );
-      } else {
-        //Якщо результати є, викликається функція onRenderGallery для рендерингу отриманих фотографій у контейнер галереї.
-        onRenderGallery(data.hits, refs.galleryConteiner);
-      }
-    })
-    //Якщо запит не вдалий, в консоль виводиться повідомлення про помилку
-    .catch(error => {
-      console.error('Error:', error);
+  totalHits = 0;
+  refs.searchform.reset(); // Очищуємо поле вводу
+  onDownloadPhoto(); //Викликаємо асинхронну функцію для завантаженя фото з API Pixabay
+}
+
+//Функція для завантаження додаткових зображень з API Pixabay, коли натискається кнопка "Load More"
+function onLoadMore() {
+  showLoader();
+  pixabayApi.incrementPage(); //// Збільшуємо номер сторінки на 1
+  onDownloadPhoto(); // Викликаємо функцію для завантаження нових зображень
+}
+
+//Створюємо асинхронну функцію для завантаження фотографій з API Pixabay, обробки результатів та оновлення інтерфейсу користувача відповідно до отриманих даних.
+async function onDownloadPhoto() {
+  showLoader();
+  refs.loadMoreBtn.classList.add('is-hidden');
+
+  try {
+    const result = await pixabayApi.fetchPhoto(); //Виконується асинхронний запит до API Pixabay для отримання фотографій.
+    const { hits, total } = result; //Отримані результати розбиваються на hits (масив фотографій) та total (загальна кількість знайдених фотографій).
+    totalHits += hits.length; //totalHits оновлюється для відстеження загальної кількості завантажених фотографій.
+
+    //Якщо фотографії не знайдені, показується повідомлення про відсутність результатів
+    if (!hits.length) {
       showToast(
         'red',
-        'An error occurred while fetching images. Please try again later.',
+        'Sorry, there are no images matching your search query. Please try again.',
         'topRight'
       );
-    })
-    //У finally приховується індикатор завантаження і очищується форма пошуку.
-    .finally(() => {
-      hideLoader();
-      refs.searchform.reset(); // Очищуємо поле вводу
-    });
+      refs.loadMoreBtn.classList.add('is-hidden'); //Додаємо клас is-hidden до кнопки "Load More" щоб зробити її невидимою
+      return;
+    }
 
-  //Викликається метод reset для скидання параметрів API
-  pixabayApi.reset();
+    onRenderGallery(hits, refs.galleryConteiner); //Викликаємо функцію яка здійснює відображення отриманих фотографій у галереї.
+
+    //Якщо загальна кількість завантажених фотографій менша за загальну кількість знайдених, появляється повідомлення про успішний пошук, і кнопка "Завантажити більше" знову стає видимою.
+    if (totalHits < total) {
+      showToast('green', `Hooray! We found ${total} images !!!`, 'topRight');
+      refs.loadMoreBtn.classList.remove('is-hidden'); //Видаємо клас is-hidden для кнопки Load More щоб зробити її видимою
+    }
+
+    //Якщо завантажено всі знайдені фотографії, показується повідомлення про досягнення кінця результатів.
+    if (totalHits >= total) {
+      showToast(
+        'red',
+        "We're sorry, but you've reached the end of search results.",
+        'topRight'
+      );
+    }
+    scrollPage(); //Викликаємо функцію для плавної прокрутки сторінки
+  } catch (error) {
+    console.error('Error:', error);
+    showToast(
+      'red',
+      'An error occurred while fetching images. Please try again later.',
+      'topRight'
+    );
+  } finally {
+    hideLoader();
+    /*  refs.searchform.reset(); // Очищуємо поле вводу */
+  }
+}
+
+// Функція для плавного прокручування сторінки на дві висоти картки галереї
+function scrollPage() {
+  const { height: cardHeight } = document
+    .querySelector('.gallery .photo-card')
+    .getBoundingClientRect();
+
+  window.scrollBy({
+    top: cardHeight * 2,
+    behavior: 'smooth',
+  });
 }
 
 // Функція для виведення повідомлення
